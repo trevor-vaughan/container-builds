@@ -20,5 +20,19 @@ local image list.
 
 ## Workstation Containers
 
-To build a 'workstation' zone, `cd` into `workstation` and run
-`./bulid.sh`.
+To build a 'workstation' zone, `cd` into `workstation` and use `buildah` to
+build the selected dockerfile.
+
+Example: `buildah bud -t el8ws -f Dockerfile.el8ws .`
+
+## Zones
+
+Zones are persistent container runtimes that act more like "regular systems"
+than traditional containers.
+
+To run a zone, `cd` into `zones` and run `create_zone.sh`.
+
+Example: `./create_zone.sh`
+
+* If you've bulid the workstation from the previous section, enter `el8ws` when
+  prompted for the target.
