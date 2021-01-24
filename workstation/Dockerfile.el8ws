@@ -1,0 +1,11 @@
+FROM el8_minimal
+
+# Useful items for a 'workstation' build
+# Ideally to be used with the create_zone.sh script
+
+ADD wsprep.sh /root/wsprep.sh
+RUN chmod +x /root/wsprep.sh
+RUN /root/wsprep.sh
+RUN rm -f /root/wsprep.sh
+
+CMD /bin/bash

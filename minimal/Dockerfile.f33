@@ -1,0 +1,17 @@
+FROM fedora:33
+
+# Fix issues with overlayfs
+RUN yum clean all
+RUN rm -f /var/lib/rpm/__db*
+RUN yum clean all
+RUN yum install -y yum-plugin-ovl || :
+RUN yum install -y yum-utils
+
+RUN yum -y update
+
+# Install buildah
+RUN yum -y install buildah crun findutils
+
+RUN sed -i -e 's/^driver.*/driver = "vfs"/' /etc/containers/storage.conf
+
+CMD /bin/bash

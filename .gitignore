@@ -1,0 +1,4 @@
+.vagrant/
+minimal/images/
+minimal/tmp/
+zones/zone_images/

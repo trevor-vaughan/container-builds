@@ -1,0 +1,18 @@
+FROM centos:7
+
+# Fix issues with overlayfs
+RUN yum clean all
+RUN rm -f /var/lib/rpm/__db*
+RUN yum clean all
+RUN yum install -y yum-plugin-ovl || :
+RUN yum install -y yum-utils
+
+RUN yum -y update
+
+# Install buildah
+RUN yum -y install buildah
+
+# EL7 doesn't have the fuse-overlayfs driver
+RUN sed -i -e 's/^driver.*/driver = "vfs"/' /etc/containers/storage.conf
+
+CMD /bin/bash
