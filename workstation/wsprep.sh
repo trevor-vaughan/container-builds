@@ -13,3 +13,5 @@ echo "Defaults:${username} !requiretty" >> /etc/sudoers
 echo "${username} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 useradd -b /home -G wheel -m -c "Workstation User" -s /bin/bash -U ${username}
 rm -rf /etc/security/limits.d/*.conf
+
+chown -R ${username}:${username} /home/${username}

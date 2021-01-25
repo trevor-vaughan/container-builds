@@ -22,8 +22,17 @@ mkdir -p "${zone_image_dir}"
 export_file="${zone_image_dir}/${clean_container_name}.tar"
 
 if [ -f "${export_file}" ]; then
-  echo "Found ${export_file}; remove the file to re-extract"
-else
+  echo "Found ${export_file}, would you like to overwrite?"
+
+  select yn in "Yes" "No"; do
+    case $yn in
+      Yes ) rm -f ${export_file}; break;;
+      No ) echo "Using ${export_file}"; break;;
+    esac
+  done
+fi
+
+if [ ! -f "${export_file}" ]; then
   id=$( podman run -id $container_name )
   podman export $id > "${export_file}"
   podman rm -f $id
@@ -56,12 +65,27 @@ for dir in ${target_dirs[@]}; do
   container_volumes+=("-v ${volume_name}:/${dir}:Z")
 
   (
-    cd $( echo "${volume_info}" | jq -r '.[] | .Mountpoint' )
-    tar --skip-old-files --strip-components=1 -xf "${export_file}" "${dir}/"
+    mountpoint=$( echo "${volume_info}" | jq -r '.[] | .Mountpoint' )
+
+    cd ${mountpoint}
+
+    set +e
+    tar --skip-old-files --strip-components=1 -xf "${export_file}" "${dir}/" 2>/dev/null
+
+    if [ $? -ne 0 ]; then
+      echo 'Warning: There were some issues extracting'
+      echo "  '${export_file}'"
+      echo "  to '${mountpoint}'"
+      echo "You may wish to remove that volume and try again"
+    fi
+
+    set -e
   )
 done
 
 echo "${container_name} volumes extracted and ready"
+
+podman rm -f "${zone_id}" ||:
 
 podman run --name "${zone_id}" $( IFS=$' '; echo "${container_volumes[*]}" ) --systemd=always -id $container_name /usr/sbin/init
 
@@ -75,3 +99,6 @@ systemctl --user enable "${zone_id}".service
 
 podman stop "${zone_id}"
 systemctl --user start "${zone_id}".service
+
+echo "Fixing ${zone_id} package permissions"
+podman exec -it "${zone_id}" /bin/bash -c 'for x in $(rpm -qa); do echo "  * Processing $x"; rpm -v --restore $x 2>/dev/null; done'
