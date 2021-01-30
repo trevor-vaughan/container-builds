@@ -25,8 +25,8 @@ yum_install="
   yum --installroot ${scratchmnt} \
     --noplugins \
     --releasever $releasever \
-    --setopt=tsflags=nodocs \
     --setopt=override_install_langs=en_US.utf8 \
+    --setopt=tsflags=nodocs \
     --setopt=install_weak_deps=False \
     install -y"
 
@@ -61,7 +61,7 @@ for dir in $docdirs; do
 done
 
 # Ensure that the image stays minimal
-yum_conf=<<HEREDOC
+cat << HERE > ${scratchmnt}/etc/yum.conf
 [main]
 best=True
 clean_requirements_on_remove=True
@@ -73,9 +73,7 @@ multilib_policy=best
 releasever=${releasever}
 skip_if_unavailable=True
 tsflags=nodocs
-HEREDOC
-
-echo $yum_conf > ${scratchmnt}/etc/yum.conf
+HERE
 
 # Services that run with private networking will not work inside of a container
 for x in $( grep -l PrivateNetwork=yes ${scratcnmnt}/usr/lib/systemd/system/*.service ); do
@@ -86,6 +84,34 @@ for x in $( grep -l PrivateNetwork=yes ${scratcnmnt}/usr/lib/systemd/system/*.se
 
   echo -e "[Service]\nPrivateNetwork=no" > "${override_dir}/private_network_override.conf"
 done
+
+if [ -d "${scratchmnt}/usr/lib/systemd" ]; then
+  mkdir -p "${scratchmnt}/usr/lib/systemd/system"
+
+  # Services that try to set capabilities will not work inside of a container and
+  # overrides don't appear to work
+  cat << HERE > "${scratchmnt}/usr/lib/systemd/system/container_safe_services.path"
+[Install]
+WantedBy=multi-user.target
+
+[Unit]
+Wants=container_safe_services.service
+
+[Path]
+PathChanged=/usr/lib/systemd/system/
+HERE
+
+  cat << HERE > "${scratchmnt}/usr/lib/systemd/system/container_safe_services.service"
+[Unit]
+Description=Keep services container safe
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sh -c "/usr/bin/sed -i '/CapabilityBoundingSet/d' /usr/lib/systemd/system/*.service"
+ExecStart=/usr/bin/systemctl daemon-reload
+HERE
+fi
 
 # configure container label and entrypoint
 buildah config --label name=${os_version}_minimal ${newcontainer}

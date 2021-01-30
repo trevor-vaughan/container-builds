@@ -11,8 +11,8 @@ fi
 
 set -e
 
-# These don't often work well inside of a container
-unsafe_dirs="dev tmp run proc sys lost+found media mnt"
+# These don't work well inside of a container
+unsafe_dirs="boot dev tmp run proc sys lost+found media mnt"
 
 clean_container_name=$( echo "${container_name}" | tr ':' '_' )
 
@@ -47,7 +47,11 @@ for dir in ${unsafe_dirs[@]}; do
 done
 
 zone_id="zone__${clean_container_name}"
+
+systemctl --user stop "${zone_id}".service ||:
+
 container_volumes=()
+tmp_container_volumes=()
 for dir in ${target_dirs[@]}; do
   volume_name="${zone_id}_${dir}"
 
@@ -55,39 +59,62 @@ for dir in ${target_dirs[@]}; do
   volume_info=$( podman volume inspect "${volume_name}" 2>/dev/null )
 
   if [ $? -ne 0 ]; then
-    set -e
     podman volume create "${volume_name}"
-    volume_info=$( podman volume inspect "${volume_name}" )
   fi
-
   set -e
 
-  container_volumes+=("-v ${volume_name}:/${dir}:Z")
-
-  (
-    mountpoint=$( echo "${volume_info}" | jq -r '.[] | .Mountpoint' )
-
-    cd ${mountpoint}
-
-    set +e
-    tar --skip-old-files --strip-components=1 -xf "${export_file}" "${dir}/" 2>/dev/null
-
-    if [ $? -ne 0 ]; then
-      echo 'Warning: There were some issues extracting'
-      echo "  '${export_file}'"
-      echo "  to '${mountpoint}'"
-      echo "You may wish to remove that volume and try again"
-    fi
-
-    set -e
-  )
+  container_volumes+=("-v ${volume_name}:/${dir}:suid,dev,Z")
+  tmp_container_volumes+=("-v ${volume_name}:/${dir}_tmp:suid,dev,Z")
 done
+
+podman rm -f "${zone_id}_tmp" 2>/dev/null ||:
+echo -n "Running temp image ${zone_id}_tmp "
+
+podman run --name "${zone_id}_tmp" \
+  --rm \
+  $( IFS=$' '; echo "${tmp_container_volumes[*]}" ) \
+  --systemd=always \
+  -id $container_name \
+  /bin/sh
+
+podman cp "${export_file}" "${zone_id}_tmp:/root/$( basename ${export_file} )"
+
+podman exec -it "${zone_id}_tmp" tar --version >& /dev/null || podman exec -it "${zone_id}_tmp" yum -y install tar
+
+for dir in ${target_dirs[@]}; do
+  volume_name="${zone_id}_${dir}"
+  volume_info=$( podman volume inspect "${volume_name}" )
+
+  set +e
+  podman exec -it "${zone_id}_tmp" tar -C "${dir}_tmp" --strip-components=1 -xf "/root/$( basename ${export_file} )" "${dir}/"
+
+  if [ $? -ne 0 ]; then
+    echo "Warning: Issue extracting '${dir}' into '${zone_id}_tmp'"
+  fi
+  set -e
+done
+
+podman stop "${zone_id}_tmp" >& /dev/null
 
 echo "${container_name} volumes extracted and ready"
 
-podman rm -f "${zone_id}" ||:
+echo -n "Running ${zone_id}: "
 
-podman run --name "${zone_id}" $( IFS=$' '; echo "${container_volumes[*]}" ) --systemd=always -id $container_name /usr/sbin/init
+podman run --name "${zone_id}" \
+  $( IFS=$' '; echo "${container_volumes[*]}" ) \
+  --replace=true \
+  --read-only=false \
+  --read-only-tmpfs=true \
+  --log-driver=journald \
+  --network=private \
+  --cap-add=NET_ADMIN,NET_RAW,AUDIT_WRITE \
+  --systemd=always \
+  --security-opt=proc-opts=hidepid=2 \
+  --stop-timeout=30 \
+  --umask=0077 \
+  --ulimit=nofile=65535:65535 \
+  -id $container_name \
+  /usr/sbin/init
 
 service_file="${HOME}/.config/systemd/user/${zone_id}.service"
 podman generate systemd "${zone_id}" > "${service_file}"
@@ -99,6 +126,3 @@ systemctl --user enable "${zone_id}".service
 
 podman stop "${zone_id}"
 systemctl --user start "${zone_id}".service
-
-echo "Fixing ${zone_id} package permissions"
-podman exec -it "${zone_id}" /bin/bash -c 'for x in $(rpm -qa); do echo "  * Processing $x"; rpm -v --restore $x 2>/dev/null; done'
