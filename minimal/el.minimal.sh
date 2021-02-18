@@ -43,23 +43,6 @@ for pkg in "${pkgs[@]}"; do
   $yum_install $pkg
 done
 
-# Clean up yum cache
-yum --installroot ${scratchmnt} clean all
-
-if [ -d "${scratchmnt}"/var/cache/yum ]; then
-  rm -rf "${scratchmnt}"/var/cache/yum
-fi
-
-# Clean up docs that ignore the yum settings
-
-docdirs=$(rpm --eval '%{__docdir_path}' | sed 's/:\+/ /g')
-
-for dir in $docdirs; do
-  if [ -d ${scratchmnt}/$dir ]; then
-    find ${scratchmnt}/$dir -type f -delete
-  fi
-done
-
 # Ensure that the image stays minimal
 cat << HERE > ${scratchmnt}/etc/yum.conf
 [main]
@@ -74,16 +57,6 @@ releasever=${releasever}
 skip_if_unavailable=True
 tsflags=nodocs
 HERE
-
-# Services that run with private networking will not work inside of a container
-for x in $( grep -l PrivateNetwork=yes ${scratcnmnt}/usr/lib/systemd/system/*.service ); do
-  svcname=$( basename "${x}")
-  override_dir="${scratchmnt}/etc/systemd/system/${svcname}.d"
-
-  mkdir -p "${override_dir}"
-
-  echo -e "[Service]\nPrivateNetwork=no" > "${override_dir}/private_network_override.conf"
-done
 
 if [ -d "${scratchmnt}/usr/lib/systemd" ]; then
   mkdir -p "${scratchmnt}/usr/lib/systemd/system"
@@ -108,10 +81,28 @@ DefaultDependencies=no
 
 [Service]
 Type=oneshot
+ExecStart=/usr/bin/sh -c "/usr/bin/sed -i '/PrivateNetwork/d' /usr/lib/systemd/system/*.service"
 ExecStart=/usr/bin/sh -c "/usr/bin/sed -i '/CapabilityBoundingSet/d' /usr/lib/systemd/system/*.service"
 ExecStart=/usr/bin/systemctl daemon-reload
 HERE
 fi
+
+# Clean up yum cache
+yum --installroot ${scratchmnt} clean all
+
+if [ -d "${scratchmnt}"/var/cache/yum ]; then
+  rm -rf "${scratchmnt}"/var/cache/yum
+fi
+
+# Clean up docs that ignore the yum settings
+
+docdirs=$(rpm --eval '%{__docdir_path}' | sed 's/:\+/ /g')
+
+for dir in $docdirs; do
+  if [ -d ${scratchmnt}/$dir ]; then
+    find ${scratchmnt}/$dir -type f -delete
+  fi
+done
 
 # configure container label and entrypoint
 buildah config --label name=${os_version}_minimal ${newcontainer}

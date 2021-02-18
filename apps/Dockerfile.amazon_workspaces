@@ -1,0 +1,19 @@
+# Install the official AWS Workspaces client for Linux
+#
+# Run with: --ipc=host --net=host -e DISPLAY
+
+FROM ubuntu:bionic
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update
+RUN apt-get install -y curl gnupg2
+RUN curl https://workspaces-client-linux-public-key.s3-us-west-2.amazonaws.com/ADB332E7.asc | apt-key add -
+RUN echo "deb [arch=amd64] https://d3nt0h4h6pmmc4.cloudfront.net/ubuntu bionic main" | tee /etc/apt/sources.list.d/amazon-workspaces-clients.list
+RUN apt-get update
+RUN apt-get -y --no-install-recommends install workspacesclient
+RUN apt-get -y --purge autoremove
+RUN apt-get -y clean
+
+WORKDIR /tmp
+VOLUME [ "/sys/fs/cgroup" ]
+ENTRYPOINT /opt/workspacesclient/workspacesclient
