@@ -127,7 +127,7 @@ The following steps were tested on CentOS 7.9 and adapted from [[0]] and [[1]]:
 * Test a podman command:
 
   ```sh
-  podman unshare cat /proc/self/uidmap
+  podman unshare cat /proc/self/uid_map
   ```
 
   * If you get an error like `Error: could not get runtime: cannot write
